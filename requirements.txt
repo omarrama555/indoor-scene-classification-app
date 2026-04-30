@@ -6,4 +6,3 @@ numpy
 pandas
 opencv-python-headless
 grad-cam
-pyperclip
