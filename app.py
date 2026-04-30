@@ -6,9 +6,10 @@ import torchvision.transforms as T
 from PIL import Image
 import numpy as np
 import pandas as pd
-from pytorch_grad_cam import GradCAM
-from pytorch_grad_cam.utils.image import show_cam_on_image
 import cv2
+import time
+import pyperclip
+from datetime import datetime
 
 try:
     from pytorch_grad_cam import GradCAM
@@ -20,18 +21,99 @@ except ImportError:
 # --- 1. إعدادات الصفحة والـ CSS المخصص ---
 st.set_page_config(page_title="Pro Indoor AI Explorer", page_icon="🏢", layout="wide")
 
-st.markdown("""
-    <style>
-    .main { background-color: #f5f7f9; }
-    .stButton>button { width: 100%; border-radius: 5px; height: 3em; background-color: #ff4b4b; color: white; }
-    .prediction-card { padding: 20px; border-radius: 10px; background-color: white; box-shadow: 0 4px 6px rgba(0,0,0,0.1); }
-    </style>
-    """, unsafe_allow_html=True)
+# --- 2. قائمة الفئات (67 فئة) مع شرح لكل فئة ---
+CLASSES_DESCRIPTION = {
+    'airport_inside': 'داخل المطار - مناطق الانتظار والصالات',
+    'artstudio': 'استوديو فني - مكان للرسم والتصميم',
+    'auditorium': 'قاعة محاضرات - مسرح أو قاعة كبيرة',
+    'bakery': 'مخبز - مكان لصنع الخبز والحلويات',
+    'bar': 'بار - مكان للمشروبات',
+    'bathroom': 'حمام - دورة مياه',
+    'bedroom': 'غرفة نوم - مكان للنوم',
+    'bookstore': 'مكتبة - بيع الكتب',
+    'bowling': 'صالة بولينج',
+    'buffet': 'بوفيه مفتوح',
+    'casino': 'كازينو - قمار',
+    'children_room': 'غرفة أطفال',
+    'church_inside': 'داخل كنيسة',
+    'classroom': 'فصل دراسي',
+    'cloister': 'كلوستر - فناء دير',
+    'closet': 'خزانة ملابس',
+    'clothingstore': 'محل ملابس',
+    'computerroom': 'غرفة حواسيب',
+    'concert_hall': 'قاعة حفلات',
+    'corridor': 'ممر - دهليز',
+    'deli': 'دلي - سوبرماركت صغير',
+    'dentaloffice': 'عيادة أسنان',
+    'dining_room': 'غرفة طعام',
+    'elevator': 'مصعد',
+    'fastfood_restaurant': 'مطعم وجبات سريعة',
+    'florist': 'محل ورد',
+    'gameroom': 'غرفة ألعاب',
+    'garage': 'كراج - جراج',
+    'greenhouse': 'بيت زجاجي - زراعة',
+    'grocerystore': 'بقالة',
+    'gym': 'نادي رياضي - جيم',
+    'hairsalon': 'صالون حلاقة',
+    'hospitalroom': 'غرفة مستشفى',
+    'inside_bus': 'داخل الباص',
+    'inside_subway': 'داخل المترو',
+    'jewelleryshop': 'محل مجوهرات',
+    'kindergarden': 'روضة أطفال',
+    'kitchen': 'مطبخ',
+    'laboratorywet': 'معمل رطب - كيمياء',
+    'laundromat': 'مغسلة ملابس',
+    'library': 'مكتبة عامة',
+    'livingroom': 'غرفة معيشة - صالون',
+    'lobby': 'لوبي - بهو فندق',
+    'locker_room': 'غرفة خزائن - خلع ملابس',
+    'mall': 'مول تجاري',
+    'meeting_room': 'غرفة اجتماعات',
+    'movietheater': 'سينما',
+    'museum': 'متحف',
+    'nursery': 'حضانة أطفال',
+    'office': 'مكتب',
+    'operating_room': 'غرفة عمليات',
+    'pantry': 'مخزن طعام',
+    'poolinside': 'مسبح داخلي',
+    'prisoncell': 'زنزانة سجن',
+    'restaurant': 'مطعم',
+    'restaurant_kitchen': 'مطبخ مطعم',
+    'shoeshop': 'محل أحذية',
+    'stairscase': 'سلم - درج',
+    'studiomusic': 'استوديو موسيقى',
+    'subway': 'مترو أنفاق',
+    'toystore': 'محل ألعاب',
+    'trainstation': 'محطة قطار',
+    'tv_studio': 'استوديو تلفزيون',
+    'videostore': 'محل فيديو',
+    'waitingroom': 'غرفة انتظار',
+    'warehouse': 'مستودع - مخزن',
+    'winecellar': 'قبو نبيذ'
+}
 
-# --- 2. قائمة الفئات (67 فئة) ---
-CLASSES = ['airport_inside', 'artstudio', 'auditorium', 'bakery', 'bar', 'bathroom', 'bedroom', 'bookstore', 'bowling', 'buffet', 'casino', 'children_room', 'church_inside', 'classroom', 'cloister', 'closet', 'clothingstore', 'computerroom', 'concert_hall', 'corridor', 'deli', 'dentaloffice', 'dining_room', 'elevator', 'fastfood_restaurant', 'florist', 'gameroom', 'garage', 'greenhouse', 'grocerystore', 'gym', 'hairsalon', 'hospitalroom', 'inside_bus', 'inside_subway', 'jewelleryshop', 'kindergarden', 'kitchen', 'laboratorywet', 'laundromat', 'library', 'livingroom', 'lobby', 'locker_room', 'mall', 'meeting_room', 'movietheater', 'museum', 'nursery', 'office', 'operating_room', 'pantry', 'poolinside', 'prisoncell', 'restaurant', 'restaurant_kitchen', 'shoeshop', 'stairscase', 'studiomusic', 'subway', 'toystore', 'trainstation', 'tv_studio', 'videostore', 'waitingroom', 'warehouse', 'winecellar']
+CLASSES = list(CLASSES_DESCRIPTION.keys())
 
-# --- 3. بناء وتحميل النموذج ---
+# --- CSS مخصص مع وضع Dark/Light mode ---
+def apply_theme(theme):
+    if theme == "Dark":
+        st.markdown("""
+            <style>
+            .main { background-color: #1e1e2f; color: white; }
+            .stButton>button { background-color: #ff4b4b; color: white; border-radius: 20px; }
+            .prediction-card { background-color: #2d2d44; border-radius: 15px; padding: 15px; }
+            </style>
+        """, unsafe_allow_html=True)
+    else:
+        st.markdown("""
+            <style>
+            .main { background-color: #f0f2f6; }
+            .stButton>button { background-color: #ff4b4b; border-radius: 20px; }
+            .prediction-card { background-color: white; border-radius: 15px; padding: 15px; box-shadow: 0 2px 5px rgba(0,0,0,0.1); }
+            </style>
+        """, unsafe_allow_html=True)
+
+# --- 3. بناء وتحميل النموذج مع Progress Bar ---
 def build_model(num_classes):
     model = models.efficientnet_b0(weights=None)
     in_f = model.classifier[1].in_features
@@ -40,10 +122,30 @@ def build_model(num_classes):
 
 @st.cache_resource
 def load_model():
+    progress_bar = st.progress(0)
+    status_text = st.empty()
+    
+    status_text.text("🔄 جاري تحميل النموذج... 0%")
     model = build_model(len(CLASSES))
-    state_dict = torch.load('indoor_model_weights.pth', map_location='cpu')
+    progress_bar.progress(20)
+    
+    status_text.text("📥 جاري تحميل الأوزان... 40%")
+    try:
+        state_dict = torch.load('indoor_model_weights.pth', map_location='cpu')
+    except:
+        st.warning("⚠️ ملف النموذج غير موجود! سيتم استخدام نموذج تدريبي مؤقت")
+        state_dict = model.state_dict()
+    progress_bar.progress(70)
+    
     new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
     model.load_state_dict(new_state_dict, strict=False)
+    progress_bar.progress(100)
+    status_text.text("✅ تم تحميل النموذج بنجاح!")
+    
+    time.sleep(0.5)
+    progress_bar.empty()
+    status_text.empty()
+    
     model.eval()
     return model
 
@@ -57,6 +159,8 @@ def get_prediction(model, img_pil):
     return probs[0]
 
 def generate_gradcam(model, img_pil, target_category):
+    if not GRAD_CAM_AVAILABLE:
+        return None
     target_layers = [model.features[-1]]
     cam = GradCAM(model=model, target_layers=target_layers)
     img_np = np.array(img_pil.resize((224, 224))).astype(np.float32) / 255.0
@@ -65,58 +169,203 @@ def generate_gradcam(model, img_pil, target_category):
     visualization = show_cam_on_image(img_np, grayscale_cam, use_rgb=True)
     return visualization
 
-# --- 5. الواجهة الرئيسية ---
-st.sidebar.title("⚙️ Control Panel")
-show_history = st.sidebar.checkbox("Show Search History", value=True)
-analysis_mode = st.sidebar.selectbox("Analysis Depth", ["Standard", "Deep (Grad-CAM)"])
+# --- 5. دوال مساعدة جديدة ---
+def confidence_meter(confidence):
+    return st.progress(float(confidence))
 
-st.title("🏢 Pro Indoor AI Classifier")
-st.markdown("---")
+def search_classes(search_term):
+    if search_term:
+        return [c for c in CLASSES if search_term.lower() in c.lower()]
+    return CLASSES
 
-try:
-    model = load_model()
+# --- 6. الواجهة الرئيسية ---
+# نظام login بسيط
+if 'logged_in' not in st.session_state:
+    st.session_state.logged_in = False
+if 'username' not in st.session_state:
+    st.session_state.username = ""
+
+if not st.session_state.logged_in:
+    st.title("🔐 Welcome to Pro Indoor AI")
+    username_input = st.text_input("👤 Enter your name to start:")
+    if username_input:
+        st.session_state.username = username_input
+        st.session_state.logged_in = True
+        st.rerun()
+    st.stop()
+
+# Sidebar - Control Panel
+st.sidebar.title(f"👋 Hello, {st.session_state.username}!")
+st.sidebar.markdown("---")
+
+# Theme selector
+theme = st.sidebar.selectbox("🎨 Theme", ["Light", "Dark"])
+apply_theme(theme)
+
+# Analysis settings
+analysis_mode = st.sidebar.selectbox("🔬 Analysis Depth", ["Standard", "Deep (Grad-CAM)"])
+top_k = st.sidebar.selectbox("📊 Number of Top Predictions", [3, 5, 10], index=1)
+show_history = st.sidebar.checkbox("📜 Show History", value=True)
+
+# Search filter
+st.sidebar.markdown("---")
+search_term = st.sidebar.text_input("🔍 Filter Classes")
+filtered_classes = search_classes(search_term)
+st.sidebar.caption(f"📋 {len(filtered_classes)} classes loaded")
+
+# Buttons
+if st.sidebar.button("🗑️ Clear History"):
+    st.session_state.history = []
+    st.rerun()
+
+if st.sidebar.button("🚪 Logout"):
+    st.session_state.logged_in = False
+    st.session_state.username = ""
+    st.rerun()
+
+# Main content
+st.title(f"🏢 Pro Indoor AI Classifier - {datetime.now().strftime('%Y-%m-%d')}")
+st.markdown(f"*Welcome {st.session_state.username}! Upload an image to classify indoor scenes*")
+
+# --- مقارنة صورتين ---
+col_comp1, col_comp2 = st.columns(2)
+compare_mode = st.checkbox("🔄 Compare two images")
+
+if compare_mode:
+    with col_comp1:
+        st.subheader("Image 1")
+        file1 = st.file_uploader("Upload first image", type=["jpg", "png", "jpeg"], key="img1")
+    with col_comp2:
+        st.subheader("Image 2")
+        file2 = st.file_uploader("Upload second image", type=["jpg", "png", "jpeg"], key="img2")
     
-    uploaded_files = st.file_uploader("Upload Image(s)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
+    if file1 and file2:
+        img1 = Image.open(file1).convert('RGB')
+        img2 = Image.open(file2).convert('RGB')
+        
+        st.image([img1, img2], caption=["Image 1", "Image 2"], width=300)
+        
+        with st.spinner("Analyzing both images..."):
+            probs1 = get_prediction(model, img1)
+            probs2 = get_prediction(model, img2)
+            pred1 = CLASSES[torch.argmax(probs1)]
+            pred2 = CLASSES[torch.argmax(probs2)]
+            
+            st.info(f"📌 Image 1 Prediction: **{pred1}**")
+            st.info(f"📌 Image 2 Prediction: **{pred2}**")
+else:
+    uploaded_files = st.file_uploader("📤 Upload Image(s)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
 
     if uploaded_files:
-        if 'history' not in st.session_state: st.session_state.history = []
+        if 'history' not in st.session_state: 
+            st.session_state.history = []
         
         for uploaded_file in uploaded_files:
+            start_time = time.time()
+            
             col1, col2 = st.columns([1, 1])
             img = Image.open(uploaded_file).convert('RGB')
             
             with col1:
-                st.image(img, caption=f"Original: {uploaded_file.name}", use_container_width=True)
+                st.image(img, caption=f"📷 {uploaded_file.name}", use_container_width=True)
             
             probs = get_prediction(model, img)
-            top5_conf, top5_labels = torch.topk(probs, 5)
+            top_k_conf, top_k_labels = torch.topk(probs, min(top_k, len(CLASSES)))
             
             with col2:
+                st.markdown('<div class="prediction-card">', unsafe_allow_html=True)
                 st.subheader("📊 Analysis Results")
-                main_pred = CLASSES[top5_labels[0]]
-                main_conf = top5_conf[0].item()
                 
-                st.metric("Top Prediction", main_pred, f"{main_conf*100:.2f}%")
+                main_pred = CLASSES[top_k_labels[0]]
+                main_conf = top_k_conf[0].item()
                 
-                # Top-5 Chart
+                # Metric with description
+                st.metric("🎯 Top Prediction", main_pred, f"{main_conf*100:.2f}%")
+                st.caption(f"ℹ️ {CLASSES_DESCRIPTION.get(main_pred, 'وصف غير متوفر')}")
+                
+                # Confidence meter
+                st.write("📈 Confidence Meter:")
+                confidence_meter(main_conf)
+                
+                # Top-K Chart
                 chart_data = pd.DataFrame({
-                    'Class': [CLASSES[i] for i in top5_labels],
-                    'Confidence': top5_conf.numpy() * 100
+                    'Class': [CLASSES[i] for i in top_k_labels],
+                    'Confidence': top_k_conf.numpy() * 100
                 })
                 st.bar_chart(chart_data.set_index('Class'))
                 
+                # Processing time
+                proc_time = time.time() - start_time
+                st.caption(f"⏱️ Processing time: {proc_time:.2f} seconds")
+                
+                # Buttons row
+                col_b1, col_b2, col_b3 = st.columns(3)
+                with col_b1:
+                    if st.button(f"📋 Copy Result", key=f"copy_{uploaded_file.name}"):
+                        try:
+                            pyperclip.copy(f"{main_pred} ({main_conf*100:.1f}%)")
+                            st.success("Copied!")
+                        except:
+                            st.info(f"Result: {main_pred}")
+                
+                with col_b2:
+                    st.download_button(
+                        label="📥 Download Result",
+                        data=f"Image: {uploaded_file.name}\nPrediction: {main_pred}\nConfidence: {main_conf*100:.2f}%\nDescription: {CLASSES_DESCRIPTION.get(main_pred, '')}",
+                        file_name=f"result_{uploaded_file.name}.txt"
+                    )
+                
+                with col_b3:
+                    share_text = f"Check out my AI prediction: {main_pred} with {main_conf*100:.1f}% confidence!"
+                    st.code(share_text, language="text", label="📤 Share this")
+                
                 if analysis_mode == "Deep (Grad-CAM)":
-                    with st.spinner('Generating Heatmap...'):
-                        heatmap = generate_gradcam(model, img, top5_labels[0].item())
-                        st.image(heatmap, caption="AI Focus Area (Grad-CAM)", use_container_width=True)
+                    with st.spinner('🔥 Generating heatmap...'):
+                        heatmap = generate_gradcam(model, img, top_k_labels[0].item())
+                        if heatmap is not None:
+                            st.image(heatmap, caption="🎨 AI Focus Area (Grad-CAM)", use_container_width=True)
+                        else:
+                            st.warning("Grad-CAM not available. Install grad-cam package.")
+                
+                # User feedback
+                feedback = st.radio("👍 Was this prediction correct?", ["✅ Yes", "❌ No", "🤔 Not sure"], key=f"fb_{uploaded_file.name}", horizontal=True)
+                if feedback == "✅ Yes":
+                    st.success("Thanks for confirming!")
+                elif feedback == "❌ No":
+                    correct_class = st.selectbox("What is the correct class?", CLASSES, key=f"correct_{uploaded_file.name}")
+                    if correct_class:
+                        st.info(f"Noted! Correct class: {correct_class}")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
 
-            st.session_state.history.append({"file": uploaded_file.name, "pred": main_pred})
+            # Add to history
+            st.session_state.history.append({
+                "file": uploaded_file.name, 
+                "pred": main_pred,
+                "confidence": f"{main_conf*100:.2f}%",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+            })
             st.markdown("---")
 
-        # Export Feature
-        if st.button("📩 Export Results as Text"):
-            report = "\n".join([f"{h['file']}: {h['pred']}" for h in st.session_state.history])
-            st.download_button("Download Report", report, file_name="ai_report.txt")
+# Show History
+if show_history and 'history' in st.session_state and st.session_state.history:
+    st.markdown("## 📜 Classification History")
+    history_df = pd.DataFrame(st.session_state.history)
+    st.dataframe(history_df, use_container_width=True)
+    
+    # Export options
+    col_exp1, col_exp2 = st.columns(2)
+    with col_exp1:
+        if st.button("📩 Export as CSV"):
+            csv = history_df.to_csv(index=False)
+            st.download_button("Download CSV", csv, file_name=f"ai_history_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+    with col_exp2:
+        if st.button("🗑️ Clear All History"):
+            st.session_state.history = []
+            st.rerun()
 
+try:
+    model = load_model()
 except Exception as e:
-    st.error(f"System Error: {e}")
+    st.error(f"⚠️ System Error: {e}")
+    st.info("Make sure 'indoor_model_weights.pth' exists in the same directory")
