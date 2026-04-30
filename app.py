@@ -9,13 +9,9 @@ import pandas as pd
 import cv2
 import time
 import json
-import os
 from datetime import datetime
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-import base64
 from io import BytesIO
+import base64
 
 try:
     from pytorch_grad_cam import GradCAM
@@ -143,7 +139,7 @@ def apply_theme(theme_name):
         .stButton>button {{ background-color: {theme["button"]} !important; color: white !important; border-radius: 20px !important; }}
         .prediction-card {{ background-color: {theme["card"]}; border-radius: 15px; padding: 20px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); color: {theme["text"]}; }}
         .stMetric {{ background-color: {theme["card"]}; border-radius: 10px; padding: 10px; }}
-        h1, h2, h3, h4, h5, p, span {{ color: {theme["text"]}; }}
+        h1, h2, h3, h4, h5, p, span, .stMarkdown {{ color: {theme["text"]}; }}
         </style>
     """, unsafe_allow_html=True)
 
@@ -195,39 +191,22 @@ def get_prediction(model, img_pil):
 def generate_gradcam(model, img_pil, target_category):
     if not GRAD_CAM_AVAILABLE:
         return None
-    target_layers = [model.features[-1]]
-    cam = GradCAM(model=model, target_layers=target_layers)
-    img_np = np.array(img_pil.resize((224, 224))).astype(np.float32) / 255.0
-    input_tensor = T.Compose([T.ToTensor(), T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])(img_pil.resize((224, 224))).unsqueeze(0)
-    grayscale_cam = cam(input_tensor=input_tensor)[0, :]
-    visualization = show_cam_on_image(img_np, grayscale_cam, use_rgb=True)
-    return visualization
+    try:
+        target_layers = [model.features[-1]]
+        cam = GradCAM(model=model, target_layers=target_layers)
+        img_np = np.array(img_pil.resize((224, 224))).astype(np.float32) / 255.0
+        input_tensor = T.Compose([T.ToTensor(), T.Normalize([0.485, 0.456, 0.406], [0.229, 0.224, 0.225])])(img_pil.resize((224, 224))).unsqueeze(0)
+        grayscale_cam = cam(input_tensor=input_tensor)[0, :]
+        visualization = show_cam_on_image(img_np, grayscale_cam, use_rgb=True)
+        return visualization
+    except Exception as e:
+        return None
 
-# --- 6. دوال الفيتشرات الجديدة ---
-
-def get_image_download_link(img, filename="image.png"):
-    buffered = BytesIO()
-    img.save(buffered, format="PNG")
-    img_str = base64.b64encode(buffered.getvalue()).decode()
-    href = f'<a href="data:file/png;base64,{img_str}" download="{filename}">Download Image</a>'
-    return href
-
-def send_email_report(to_email, subject, content):
-    # هاي دالة تجريبية - محتاجة إعدادات SMTP حقيقية
-    st.info(f"📧 Mock email sent to {to_email}")
-    return True
-
+# --- 6. دوال الفيتشرات ---
 def save_session(session_data, filename="session.json"):
     with open(filename, 'w') as f:
         json.dump(session_data, f)
     return filename
-
-def load_session(filename="session.json"):
-    try:
-        with open(filename, 'r') as f:
-            return json.load(f)
-    except:
-        return None
 
 # --- 7. تحميل النموذج ---
 try:
@@ -247,6 +226,8 @@ if 'language' not in st.session_state:
     st.session_state.language = "English"
 if 'suggestions' not in st.session_state:
     st.session_state.suggestions = {}
+if 'camera_img' not in st.session_state:
+    st.session_state.camera_img = None
 
 # --- 9. الترجمات ---
 TEXTS = {
@@ -254,7 +235,6 @@ TEXTS = {
         "title": "🏢 Pro Indoor AI Explorer Pro",
         "welcome": "Welcome to Indoor Scene Classification",
         "upload": "📤 Upload Image(s)",
-        "predict": "🔍 Predict",
         "result": "📊 Analysis Results",
         "confidence": "Confidence",
         "processing_time": "Processing time",
@@ -265,7 +245,6 @@ TEXTS = {
         "title": "🏢 المستكشف الاحترافي للأماكن الداخلية",
         "welcome": "مرحباً بك في تصنيف المشاهد الداخلية",
         "upload": "📤 رفع الصور",
-        "predict": "🔍 تصنيف",
         "result": "📊 نتائج التحليل",
         "confidence": "نسبة الثقة",
         "processing_time": "وقت المعالجة",
@@ -314,38 +293,25 @@ top_k = st.sidebar.selectbox("📊 Top K Predictions", [3, 5, 10], index=1)
 st.sidebar.markdown("---")
 st.sidebar.subheader("🎯 Advanced Features")
 
-# Feature 1: Camera Capture
+# Feature 1: Camera Capture (طريقة مبسطة بدون مشاكل)
 camera_enabled = st.sidebar.checkbox("📸 Camera Mode")
 if camera_enabled:
-    camera_image = st.camera_input("Take a picture")
-    if camera_image:
-        img = Image.open(camera_image).convert('RGB')
-        st.session_state.camera_img = img
+    st.sidebar.info("📷 Use the camera below to capture an image")
+    camera_image = st.camera_input("Take a picture", key="camera_input")
+    if camera_image is not None:
+        try:
+            st.session_state.camera_img = Image.open(camera_image).convert('RGB')
+            st.sidebar.success("✅ Image captured successfully!")
+        except Exception as e:
+            st.sidebar.error(f"Camera error: {e}")
 
-# Feature 2: Voice input (HTML/JS)
-st.sidebar.markdown("🎤 Voice Command")
-voice_html = """
-<script>
-function startRecording() {
-    var recognition = new webkitSpeechRecognition();
-    recognition.lang = 'ar-EG';
-    recognition.onresult = function(event) {
-        document.getElementById('voice-result').value = event.results[0][0].transcript;
-    }
-    recognition.start();
-}
-</script>
-<button onclick="startRecording()">🎤 Speak</button>
-<input id="voice-result" placeholder="Voice text will appear here">
-"""
-st.sidebar.components.html(voice_html, height=100)
-
-# Feature 3: Batch processing
+# Feature 2: Batch processing
 batch_mode = st.sidebar.checkbox("🔄 Batch Processing Mode")
+batch_files = None
 if batch_mode:
     batch_files = st.sidebar.file_uploader("Upload multiple images", type=["jpg", "png", "jpeg"], accept_multiple_files=True, key="batch")
 
-# Feature 4: Save/Load session
+# Feature 3: Save/Load session
 st.sidebar.markdown("---")
 if st.sidebar.button("💾 Save Session"):
     session_data = {
@@ -354,28 +320,21 @@ if st.sidebar.button("💾 Save Session"):
         "timestamp": datetime.now().isoformat()
     }
     filename = save_session(session_data, f"session_{st.session_state.username}.json")
-    st.sidebar.success(f"Saved to {filename}")
+    st.sidebar.success(f"✅ Saved to {filename}")
 
 uploaded_session = st.sidebar.file_uploader("📂 Load Session", type=["json"])
-if uploaded_session:
-    session_data = json.load(uploaded_session)
-    st.session_state.history = session_data.get("history", [])
-    st.sidebar.success("Session loaded!")
-
-# Feature 5: Email report
-st.sidebar.markdown("---")
-email = st.sidebar.text_input("📧 Email for reports")
-if st.sidebar.button("📨 Send Report") and email:
-    report_content = f"Classification Report for {st.session_state.username}\n"
-    report_content += f"Total predictions: {len(st.session_state.history)}\n"
-    for item in st.session_state.history[-5:]:
-        report_content += f"- {item['file']}: {item['pred']} ({item['confidence']})\n"
-    send_email_report(email, "AI Classification Report", report_content)
-    st.sidebar.success("Report sent!")
+if uploaded_session is not None:
+    try:
+        session_data = json.load(uploaded_session)
+        st.session_state.history = session_data.get("history", [])
+        st.sidebar.success("✅ Session loaded successfully!")
+    except Exception as e:
+        st.sidebar.error(f"Error loading session: {e}")
 
 # Logout button
 if st.sidebar.button("🚪 Logout"):
     st.session_state.logged_in = False
+    st.session_state.camera_img = None
     st.rerun()
 
 # Main area
@@ -383,46 +342,47 @@ st.title(txt['title'])
 st.markdown(f"*{txt['welcome']}*")
 
 # Statistics Dashboard
-if st.checkbox("📊 Show Statistics Dashboard"):
+with st.expander("📊 Statistics Dashboard", expanded=False):
     if st.session_state.history:
         df = pd.DataFrame(st.session_state.history)
         
         col_stat1, col_stat2, col_stat3, col_stat4 = st.columns(4)
         with col_stat1:
-            st.metric("Total Images", len(df))
+            st.metric("📸 Total Images", len(df))
         with col_stat2:
-            st.metric("Unique Classes", df['pred'].nunique())
+            st.metric("🏷️ Unique Classes", df['pred'].nunique())
         with col_stat3:
             most_common = df['pred'].mode().iloc[0] if not df.empty else "N/A"
-            st.metric("Most Common", most_common)
+            st.metric("🥇 Most Common", most_common)
         with col_stat4:
-            avg_conf = df['confidence'].str.replace('%', '').astype(float).mean() if not df.empty else 0
-            st.metric("Avg Confidence", f"{avg_conf:.1f}%")
+            try:
+                avg_conf = df['confidence'].str.replace('%', '').astype(float).mean() if not df.empty else 0
+                st.metric("📈 Avg Confidence", f"{avg_conf:.1f}%")
+            except:
+                st.metric("📈 Avg Confidence", "N/A")
         
         # Leaderboard
         st.subheader("🏆 Class Leaderboard")
         leaderboard = df['pred'].value_counts().head(10)
         st.bar_chart(leaderboard)
-        
-        # Confidence distribution
-        st.subheader("📈 Confidence Distribution")
-        conf_values = df['confidence'].str.replace('%', '').astype(float)
-        st.area_chart(conf_values)
     else:
-        st.info("No data yet. Upload some images to see statistics!")
+        st.info("ℹ️ No data yet. Upload some images to see statistics!")
 
 # Main upload section
-if not camera_enabled and not batch_mode:
-    uploaded_files = st.file_uploader(txt['upload'], type=["jpg", "png", "jpeg"], accept_multiple_files=True)
-elif batch_mode:
-    uploaded_files = batch_files
-elif camera_enabled and 'camera_img' in st.session_state:
-    uploaded_files = [st.session_state.camera_img]
-else:
-    uploaded_files = []
+uploaded_files = []
 
+# تحديد مصدر الصور
+if camera_enabled and st.session_state.camera_img is not None:
+    uploaded_files = [st.session_state.camera_img]
+    st.info("📸 Using camera image")
+elif batch_mode and batch_files:
+    uploaded_files = batch_files
+else:
+    uploaded_files = st.file_uploader(txt['upload'], type=["jpg", "png", "jpeg"], accept_multiple_files=True, key="main_uploader")
+
+# معالجة الصور
 if uploaded_files:
-    for uploaded_file in uploaded_files:
+    for idx, uploaded_file in enumerate(uploaded_files):
         start_time = time.time()
         
         col1, col2 = st.columns([1, 1])
@@ -430,103 +390,108 @@ if uploaded_files:
         # Handle different input types
         if isinstance(uploaded_file, Image.Image):
             img = uploaded_file
-            filename = "camera_capture.jpg"
+            filename = f"camera_capture_{idx}.jpg"
         else:
-            img = Image.open(uploaded_file).convert('RGB')
-            filename = uploaded_file.name
+            try:
+                img = Image.open(uploaded_file).convert('RGB')
+                filename = uploaded_file.name
+            except Exception as e:
+                st.error(f"Error opening image: {e}")
+                continue
         
         with col1:
             st.image(img, caption=f"📷 {filename}", use_container_width=True)
         
-        probs = get_prediction(model, img)
-        top_k_conf, top_k_labels = torch.topk(probs, min(top_k, len(CLASSES)))
-        
-        with col2:
-            st.markdown('<div class="prediction-card">', unsafe_allow_html=True)
-            st.subheader(txt['result'])
+        # Get prediction
+        try:
+            probs = get_prediction(model, img)
+            top_k_conf, top_k_labels = torch.topk(probs, min(top_k, len(CLASSES)))
             
-            main_pred = CLASSES[top_k_labels[0]]
-            main_conf = top_k_conf[0].item()
+            with col2:
+                st.markdown('<div class="prediction-card">', unsafe_allow_html=True)
+                st.subheader(txt['result'])
+                
+                main_pred = CLASSES[top_k_labels[0]]
+                main_conf = top_k_conf[0].item()
+                
+                st.metric("🎯 Top Prediction", main_pred, f"{main_conf*100:.2f}%")
+                st.caption(f"ℹ️ {CLASSES_DESCRIPTION.get(main_pred, 'No description available')}")
+                
+                # Confidence meter
+                st.progress(main_conf)
+                
+                # Top-K Chart
+                chart_data = pd.DataFrame({
+                    'Class': [CLASSES[i] for i in top_k_labels],
+                    'Confidence': top_k_conf.numpy() * 100
+                })
+                st.bar_chart(chart_data.set_index('Class'))
+                
+                # Processing time
+                proc_time = time.time() - start_time
+                st.caption(f"⏱️ {txt['processing_time']}: {proc_time:.2f} seconds")
+                
+                # Download button
+                result_text = f"Image: {filename}\nPrediction: {main_pred}\nConfidence: {main_conf*100:.2f}%\nDescription: {CLASSES_DESCRIPTION.get(main_pred, '')}\nTimestamp: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"
+                st.download_button(txt['download'], result_text, file_name=f"result_{datetime.now().strftime('%Y%m%d_%H%M%S')}.txt")
+                
+                # AI Suggestions
+                st.subheader("🤖 AI Suggestions")
+                similar_classes = top_k_labels[1:4]
+                for class_idx in similar_classes:
+                    st.info(f"💡 Try: {CLASSES[class_idx]}")
+                
+                # Grad-CAM
+                if analysis_mode == "Deep (Grad-CAM)" and GRAD_CAM_AVAILABLE:
+                    with st.spinner('🔥 Generating heatmap...'):
+                        heatmap = generate_gradcam(model, img, top_k_labels[0].item())
+                        if heatmap is not None:
+                            st.image(heatmap, caption="🎨 AI Focus Area (Grad-CAM)", use_container_width=True)
+                        else:
+                            st.warning("⚠️ Grad-CAM unavailable for this image")
+                
+                # Feedback
+                feedback = st.radio("👍 Was this correct?", ["✅ Yes", "❌ No"], key=f"fb_{filename}_{idx}", horizontal=True)
+                if feedback == "❌ No":
+                    correct_class = st.selectbox("What is the correct class?", CLASSES, key=f"correct_{filename}_{idx}")
+                    if correct_class:
+                        st.session_state.suggestions[filename] = correct_class
+                        st.success("🙏 Thanks for helping improve the AI!")
+                
+                st.markdown('</div>', unsafe_allow_html=True)
             
-            st.metric("🎯 Top Prediction", main_pred, f"{main_conf*100:.2f}%")
-            st.caption(f"ℹ️ {CLASSES_DESCRIPTION.get(main_pred, 'No description')}")
-            
-            # Confidence meter
-            st.progress(main_conf)
-            
-            # Top-K Chart
-            chart_data = pd.DataFrame({
-                'Class': [CLASSES[i] for i in top_k_labels],
-                'Confidence': top_k_conf.numpy() * 100
+            # Save to history
+            st.session_state.history.append({
+                "file": filename,
+                "pred": main_pred,
+                "confidence": f"{main_conf*100:.2f}%",
+                "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
             })
-            st.bar_chart(chart_data.set_index('Class'))
+            st.markdown("---")
             
-            # Processing time
-            proc_time = time.time() - start_time
-            st.caption(f"⏱️ {txt['processing_time']}: {proc_time:.2f} seconds")
-            
-            # Download button
-            result_text = f"Image: {filename}\nPrediction: {main_pred}\nConfidence: {main_conf*100:.2f}%\nDescription: {CLASSES_DESCRIPTION.get(main_pred, '')}"
-            st.download_button(txt['download'], result_text, file_name=f"result_{filename}.txt")
-            
-            # AI Suggestions (Feature 10)
-            st.subheader("🤖 AI Suggestions")
-            similar_classes = top_k_labels[1:4]
-            for idx, class_idx in enumerate(similar_classes, 1):
-                st.info(f"💡 Similar to: {CLASSES[class_idx]} - Try uploading an image of this scene!")
-            
-            if analysis_mode == "Deep (Grad-CAM)" and GRAD_CAM_AVAILABLE:
-                with st.spinner('🔥 Generating heatmap...'):
-                    heatmap = generate_gradcam(model, img, top_k_labels[0].item())
-                    if heatmap is not None:
-                        st.image(heatmap, caption="🎨 AI Focus Area (Grad-CAM)", use_container_width=True)
-            
-            # Feedback
-            feedback = st.radio("👍 Was this correct?", ["✅ Yes", "❌ No"], key=f"fb_{filename}", horizontal=True)
-            if feedback == "❌ No":
-                correct_class = st.selectbox("Correct class?", CLASSES, key=f"correct_{filename}")
-                if correct_class:
-                    st.session_state.suggestions[filename] = correct_class
-                    st.success("Thanks for helping improve the AI!")
-            
-            st.markdown('</div>', unsafe_allow_html=True)
-        
-        # Save to history
-        st.session_state.history.append({
-            "file": filename,
-            "pred": main_pred,
-            "confidence": f"{main_conf*100:.2f}%",
-            "timestamp": datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-        })
-        st.markdown("---")
+        except Exception as e:
+            st.error(f"Error processing image: {e}")
+            continue
 
 # Show history
-if st.checkbox("📜 Show History"):
+with st.expander("📜 Classification History", expanded=False):
     if st.session_state.history:
         history_df = pd.DataFrame(st.session_state.history)
         st.dataframe(history_df, use_container_width=True)
         
-        # Export statistics
-        if st.button("📊 Export Full Statistics"):
-            stats = {
-                "total_predictions": len(history_df),
-                "unique_classes": history_df['pred'].nunique(),
-                "most_common": history_df['pred'].mode().iloc[0] if not history_df.empty else None,
-                "class_distribution": history_df['pred'].value_counts().to_dict(),
-                "user_feedback": st.session_state.suggestions
-            }
-            st.json(stats)
+        # Export all history
+        if st.button("📥 Export Full History as CSV"):
+            csv = history_df.to_csv(index=False)
+            st.download_button("Download CSV", csv, file_name=f"ai_history_{datetime.now().strftime('%Y%m%d_%H%M%S')}.csv", mime="text/csv")
     else:
-        st.info("No history yet. Upload some images!")
+        st.info("ℹ️ No history yet. Upload some images!")
 
-# Feature 6: Custom CSS Theme preview
+# Custom CSS Theme Editor
 with st.expander("🎨 Custom CSS Theme Editor"):
-    custom_css = st.text_area("Write custom CSS:", """
-    .stButton>button {
-        background-color: #ff4b4b;
-        border-radius: 25px;
-    }
-    """)
-    if st.button("Apply Custom CSS"):
-        st.markdown(f"<style>{custom_css}</style>", unsafe_allow_html=True)
-        st.success("Custom CSS applied!")
+    custom_css = st.text_area("Write custom CSS:", height=150, placeholder=".stButton>button {\n    background-color: #ff4b4b;\n    border-radius: 25px;\n}")
+    if st.button("🎨 Apply Custom CSS"):
+        if custom_css.strip():
+            st.markdown(f"<style>{custom_css}</style>", unsafe_allow_html=True)
+            st.success("✅ Custom CSS applied successfully!")
+        else:
+            st.warning("⚠️ Please enter some CSS first!")
