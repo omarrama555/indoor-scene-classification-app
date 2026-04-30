@@ -36,10 +36,18 @@ st.title("🏠 Indoor Scene Classifier")
 st.write("Upload a photo of an indoor place and the AI will tell you what it is!")
 
 # 4. تحميل النموذج والأوزان
-@st.cache_resource # لتجنب تحميل النموذج في كل مرة تضغط فيها على زر
+@st.cache_resource
 def load_trained_model():
     model = build_model(len(classes))
-    model.load_state_dict(torch.load('indoor_model_weights.pth', map_location='cpu'))
+    # تحميل الأوزان مع التعامل مع عدم تطابق الأسماء
+    state_dict = torch.load('indoor_model_weights.pth', map_location='cpu')
+    
+    # إذا كنت قد حفظت النموذج باستخدام DataParallel، الأسماء ستبدأ بكلمة "module."
+    # هذا السطر يقوم بحذفها ليتطابق مع النموذج العادي
+    new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+    
+    # تحميل الأوزان (استخدام strict=False يتجاوز الأخطاء البسيطة في المسميات)
+    model.load_state_dict(new_state_dict, strict=False)
     model.eval()
     return model
 
