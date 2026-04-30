@@ -8,7 +8,6 @@ import numpy as np
 import pandas as pd
 import cv2
 import time
-import pyperclip
 from datetime import datetime
 
 try:
@@ -132,16 +131,18 @@ def load_model():
     status_text.text("📥 جاري تحميل الأوزان... 40%")
     try:
         state_dict = torch.load('indoor_model_weights.pth', map_location='cpu')
-    except:
-        st.warning("⚠️ ملف النموذج غير موجود! سيتم استخدام نموذج تدريبي مؤقت")
-        state_dict = model.state_dict()
-    progress_bar.progress(70)
+        progress_bar.progress(70)
+        new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
+        model.load_state_dict(new_state_dict, strict=False)
+        status_text.text("✅ تم تحميل النموذج بنجاح!")
+    except FileNotFoundError:
+        st.warning("⚠️ ملف النموذج غير موجود! سيتم استخدام نموذج فارغ (للاختبار فقط)")
+        status_text.text("⚠️ نموذج فارغ - حمّل الأوزان أولاً")
+    except Exception as e:
+        st.error(f"خطأ في تحميل النموذج: {e}")
+        status_text.text("❌ فشل تحميل النموذج")
     
-    new_state_dict = {k.replace('module.', ''): v for k, v in state_dict.items()}
-    model.load_state_dict(new_state_dict, strict=False)
     progress_bar.progress(100)
-    status_text.text("✅ تم تحميل النموذج بنجاح!")
-    
     time.sleep(0.5)
     progress_bar.empty()
     status_text.empty()
@@ -178,7 +179,17 @@ def search_classes(search_term):
         return [c for c in CLASSES if search_term.lower() in c.lower()]
     return CLASSES
 
-# --- 6. الواجهة الرئيسية ---
+# ==================== تحميل النموذج أولاً ====================
+# ده المكان اللي بيتحمل فيه النموذج قبل أي حاجة تانية
+try:
+    model = load_model()
+except Exception as e:
+    st.error(f"⚠️ فشل تحميل النموذج: {e}")
+    st.info("تأكد من وجود ملف 'indoor_model_weights.pth' في نفس المجلد")
+    st.stop()
+
+# ==================== باقي الواجهة ====================
+
 # نظام login بسيط
 if 'logged_in' not in st.session_state:
     st.session_state.logged_in = False
@@ -224,14 +235,14 @@ if st.sidebar.button("🚪 Logout"):
     st.rerun()
 
 # Main content
-st.title(f"🏢 Pro Indoor AI Classifier - {datetime.now().strftime('%Y-%m-%d')}")
+st.title(f"🏢 Pro Indoor AI Classifier")
 st.markdown(f"*Welcome {st.session_state.username}! Upload an image to classify indoor scenes*")
 
 # --- مقارنة صورتين ---
-col_comp1, col_comp2 = st.columns(2)
 compare_mode = st.checkbox("🔄 Compare two images")
 
 if compare_mode:
+    col_comp1, col_comp2 = st.columns(2)
     with col_comp1:
         st.subheader("Image 1")
         file1 = st.file_uploader("Upload first image", type=["jpg", "png", "jpeg"], key="img1")
@@ -243,7 +254,11 @@ if compare_mode:
         img1 = Image.open(file1).convert('RGB')
         img2 = Image.open(file2).convert('RGB')
         
-        st.image([img1, img2], caption=["Image 1", "Image 2"], width=300)
+        col_img1, col_img2 = st.columns(2)
+        with col_img1:
+            st.image(img1, caption="Image 1", use_container_width=True)
+        with col_img2:
+            st.image(img2, caption="Image 2", use_container_width=True)
         
         with st.spinner("Analyzing both images..."):
             probs1 = get_prediction(model, img1)
@@ -279,7 +294,6 @@ else:
                 main_pred = CLASSES[top_k_labels[0]]
                 main_conf = top_k_conf[0].item()
                 
-                # Metric with description
                 st.metric("🎯 Top Prediction", main_pred, f"{main_conf*100:.2f}%")
                 st.caption(f"ℹ️ {CLASSES_DESCRIPTION.get(main_pred, 'وصف غير متوفر')}")
                 
@@ -298,34 +312,20 @@ else:
                 proc_time = time.time() - start_time
                 st.caption(f"⏱️ Processing time: {proc_time:.2f} seconds")
                 
-                # Buttons row
-                col_b1, col_b2, col_b3 = st.columns(3)
-                with col_b1:
-                    if st.button(f"📋 Copy Result", key=f"copy_{uploaded_file.name}"):
-                        try:
-                            pyperclip.copy(f"{main_pred} ({main_conf*100:.1f}%)")
-                            st.success("Copied!")
-                        except:
-                            st.info(f"Result: {main_pred}")
+                # Download button
+                st.download_button(
+                    label="📥 Download Result",
+                    data=f"Image: {uploaded_file.name}\nPrediction: {main_pred}\nConfidence: {main_conf*100:.2f}%\nDescription: {CLASSES_DESCRIPTION.get(main_pred, '')}",
+                    file_name=f"result_{uploaded_file.name}.txt"
+                )
                 
-                with col_b2:
-                    st.download_button(
-                        label="📥 Download Result",
-                        data=f"Image: {uploaded_file.name}\nPrediction: {main_pred}\nConfidence: {main_conf*100:.2f}%\nDescription: {CLASSES_DESCRIPTION.get(main_pred, '')}",
-                        file_name=f"result_{uploaded_file.name}.txt"
-                    )
-                
-                with col_b3:
-                    share_text = f"Check out my AI prediction: {main_pred} with {main_conf*100:.1f}% confidence!"
-                    st.code(share_text, language="text", label="📤 Share this")
-                
-                if analysis_mode == "Deep (Grad-CAM)":
+                if analysis_mode == "Deep (Grad-CAM)" and GRAD_CAM_AVAILABLE:
                     with st.spinner('🔥 Generating heatmap...'):
                         heatmap = generate_gradcam(model, img, top_k_labels[0].item())
                         if heatmap is not None:
                             st.image(heatmap, caption="🎨 AI Focus Area (Grad-CAM)", use_container_width=True)
                         else:
-                            st.warning("Grad-CAM not available. Install grad-cam package.")
+                            st.warning("Grad-CAM not available")
                 
                 # User feedback
                 feedback = st.radio("👍 Was this prediction correct?", ["✅ Yes", "❌ No", "🤔 Not sure"], key=f"fb_{uploaded_file.name}", horizontal=True)
@@ -354,18 +354,10 @@ if show_history and 'history' in st.session_state and st.session_state.history:
     st.dataframe(history_df, use_container_width=True)
     
     # Export options
-    col_exp1, col_exp2 = st.columns(2)
-    with col_exp1:
-        if st.button("📩 Export as CSV"):
-            csv = history_df.to_csv(index=False)
-            st.download_button("Download CSV", csv, file_name=f"ai_history_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
-    with col_exp2:
-        if st.button("🗑️ Clear All History"):
-            st.session_state.history = []
-            st.rerun()
-
-try:
-    model = load_model()
-except Exception as e:
-    st.error(f"⚠️ System Error: {e}")
-    st.info("Make sure 'indoor_model_weights.pth' exists in the same directory")
+    if st.button("📩 Export as CSV"):
+        csv = history_df.to_csv(index=False)
+        st.download_button("Download CSV", csv, file_name=f"ai_history_{datetime.now().strftime('%Y%m%d')}.csv", mime="text/csv")
+    
+    if st.button("🗑️ Clear All History"):
+        st.session_state.history = []
+        st.rerun()
