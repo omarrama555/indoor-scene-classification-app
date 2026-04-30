@@ -18,7 +18,7 @@ except ImportError:
     GRAD_CAM_AVAILABLE = False
 
 # --- 1. إعدادات الصفحة والـ CSS المخصص ---
-st.set_page_config(page_title="Pro Indoor AI Explorer", page_icon="🏢", layout="wide")
+st.set_page_config(page_title="Indoor AI Explorer", page_icon="🏢", layout="wide")
 
 # --- 2. قائمة الفئات (67 فئة) مع شرح لكل فئة ---
 CLASSES_DESCRIPTION = {
