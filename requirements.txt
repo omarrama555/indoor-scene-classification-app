@@ -3,3 +3,6 @@ torchvision
 streamlit
 pillow
 numpy
+pytorch-grad-cam
+opencv-python-headless
+pandas
