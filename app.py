@@ -21,7 +21,7 @@ except ImportError:
     GRAD_CAM_AVAILABLE = False
 
 # --- 1. إعدادات الصفحة ---
-st.set_page_config(page_title="Pro Indoor AI Explorer Pro", page_icon="🏢", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title=" Indoor AI Explorer ", page_icon="🏢", layout="wide", initial_sidebar_state="expanded")
 
 # --- 2. قائمة الفئات (67 فئة) مع شرح لكل فئة ---
 CLASSES_DESCRIPTION = {
@@ -232,7 +232,7 @@ if 'camera_img' not in st.session_state:
 # --- 9. الترجمات ---
 TEXTS = {
     "English": {
-        "title": "🏢 Pro Indoor AI Explorer Pro",
+        "title": " Indoor AI Explorer ",
         "welcome": "Welcome to Indoor Scene Classification",
         "upload": "📤 Upload Image(s)",
         "result": "📊 Analysis Results",
